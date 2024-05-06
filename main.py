@@ -52,7 +52,7 @@ converted_model, converted_tokenizer = convert_to_onnx(model_directory)
 onnx_setfit_model = EnhancedOnnxModel(converted_model, converted_tokenizer, student_model.model.model_head)
 
 # Benchmarking non-quantized ONNX model
-onnx_benchmark_evaluator = ModelBenchmark(converted_model.model, test_dataset)
+onnx_benchmark_evaluator = ModelBenchmark(onnx_setfit_model, test_dataset)
 non_quantized_benchmark = onnx_benchmark_evaluator.conduct_benchmark_onnx(onnx_setfit_model, "onnx/model.onnx")
 
 # Quantize the ONNX model
@@ -65,7 +65,7 @@ ort_model = ORTModelForFeatureExtraction.from_pretrained(Path("onnx"), file_name
 onnx_setfit_model_quantized = EnhancedOnnxModel(ort_model, converted_tokenizer, student_model.model.model_head)
 
 quantized_benchmark_evaluator = ModelBenchmark(onnx_setfit_model_quantized, test_dataset)
-quantized_model_benchmark = onnx_benchmark_evaluator.conduct_benchmark_onnx(onnx_setfit_model, "onnx/model_quantized.onnx")
+quantized_model_benchmark = quantized_benchmark_evaluator.conduct_benchmark_onnx(onnx_setfit_model_quantized, "onnx/model_quantized.onnx")
 
 # Final results output
 results = {
