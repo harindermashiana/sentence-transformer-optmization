@@ -37,7 +37,7 @@ wandb.init(project="model_analysis", entity="hsmashiana", name="Training Student
 student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-v2", train_dataset)
 benchmark_evaluator = ModelBenchmark(student_model.model, test_dataset)
 student_benchmark = benchmark_evaluator.conduct_benchmark()
-wandb.log({"student_model_benchmark": student_benchmark})
+wandb.log(student_benchmark)
 
 wandb.log({"train_loss_student": student_model.state.log_history})
 
@@ -48,7 +48,7 @@ teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base
 benchmark_evaluator.model = teacher_model.model 
 teacher_benchmark = benchmark_evaluator.conduct_benchmark()
 wandb.log({"teacher_model_benchmark": teacher_benchmark})
-wandb.log({"train_loss_teacher": teacher_model.state.log_history})
+wandb.log(teacher_model.state.log_history)
 
 
 # Perform and evaluate model distillation
@@ -60,7 +60,7 @@ distiller.model.save_pretrained("distilled")
 benchmark_evaluator.model = distiller.model  # Update model in the evaluator for re-use
 distiller_benchmark = benchmark_evaluator.conduct_benchmark()
 wandb.log({"distilled_model_benchmark": distiller_benchmark})
-wandb.log({"train_loss_distillation": distiller.state.log_history})
+wandb.log(distiller.state.log_history)
 
 # ONNX conversion for the distilled model
 wandb.run.name = "Onnx_non_quantized"
@@ -73,7 +73,7 @@ onnx_setfit_model = EnhancedOnnxModel(converted_model, converted_tokenizer, stud
 # Benchmarking non-quantized ONNX model
 onnx_benchmark_evaluator = ModelBenchmark(onnx_setfit_model, test_dataset)
 non_quantized_benchmark = onnx_benchmark_evaluator.conduct_benchmark_onnx(onnx_setfit_model, "onnx/model.onnx")
-wandb.log({"non_quantized_benchmark": non_quantized_benchmark})
+wandb.log(non_quantized_benchmark)
 
 # Quantize the ONNX model
 wandb.run.name = "Onnx_Quantized"
@@ -89,7 +89,10 @@ onnx_setfit_model_quantized = EnhancedOnnxModel(ort_model, converted_tokenizer, 
 
 quantized_benchmark_evaluator = ModelBenchmark(onnx_setfit_model_quantized, test_dataset)
 quantized_model_benchmark = quantized_benchmark_evaluator.conduct_benchmark_onnx(onnx_setfit_model_quantized, "onnx/model_quantized.onnx")
-wandb.log({"quantized_model_benchmark": quantized_model_benchmark})
+
+wandb.run.name = "Onnx_Quantized"
+wandb.init(project="model_analysis", entity="hsmashiana", name="Onnx_Quantized")
+wandb.log(quantized_model_benchmark)
 
 # Final results output
 results = {
