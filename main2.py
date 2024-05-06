@@ -16,31 +16,32 @@ from model.onnx_model import convert_to_onnx
 from plots.plot import plot_model_performance, plot_accuracy_and_latency, plot_top_categories  # Updated for new plotting functions
 from optimum.onnxruntime import ORTModelForFeatureExtraction
 from quantization import EnhancedOnnxModel
+from setfit import sample_dataset
 
 # Setting up environment variable to avoid parallelism issues with tokenizers
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Load the AG News dataset
-ag_news_dataset = load_dataset("ag_news")
+dataset = load_dataset("ag_news")
 
 # Prepare datasets for training and evaluation
-training_data = ag_news_dataset["train"].train_test_split(seed=42)
-sampled_train_data = training_data["train"]
-student_training_subset = training_data["test"].select(range(1000))
-test_data = ag_news_dataset["test"]
+train_dataset = dataset["train"].train_test_split(seed=42)
+train_dataset_student = train_dataset["test"].select(range(1000))
+train_dataset = sample_dataset(train_dataset["train"])
+test_dataset = dataset["test"]
 
 # Train models
-student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-v2", sampled_train_data)
-teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base-v2", sampled_train_data)
+student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-v2", train_dataset)
+teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base-v2", train_dataset)
 
 # Evaluate both models using the updated benchmark class
-benchmark_evaluator = ModelBenchmark(student_model.model, test_data)
+benchmark_evaluator = ModelBenchmark(student_model.model, test_dataset)
 student_benchmark = benchmark_evaluator.run_benchmark()
 benchmark_evaluator.model = teacher_model.model  # Update model in the evaluator for re-use
 teacher_benchmark = benchmark_evaluator.run_benchmark()
 
 # Perform and evaluate model distillation
-distiller = perform_model_distillation(student_model.model, teacher_model.model, student_training_subset)
+distiller = perform_model_distillation(student_model.model, teacher_model.model, train_dataset_student)
 distiller.model.save_pretrained("distilled")
 benchmark_evaluator.model = distiller.model  # Update model in the evaluator for re-use
 distiller_benchmark = benchmark_evaluator.run_benchmark()
