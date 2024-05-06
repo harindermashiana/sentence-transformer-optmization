@@ -1,83 +1,45 @@
-import os
-from pathlib import Path
-import wandb
-from datasets import load_dataset
+from setfit import DistillationTrainer  # Updated to use the recommended trainer
 
-# Disable wandb for this session
-wandb.init(mode="disabled")
+def perform_model_distillation(learner_model, instructor_model, training_data):
+    """
+    Initializes the distillation process where the learner (student) model learns from the
+    instructor (teacher) model using the provided training data.
 
-# Custom module imports
-from quantization import ModelQuantizer
-from student_train import train_student_model
-from teacher_train import train_teacher_model
-from benchmark import ModelBenchmark  # Updated class name
-from distillation import perform_model_distillation
-from onnx_model import convert_to_onnx
-from plot import plot_model_performance, plot_accuracy_and_latency, plot_top_categories  # Updated for new plotting functions
-from optimum.onnxruntime import ORTModelForFeatureExtraction
-from quantization import EnhancedOnnxModel
-from setfit import sample_dataset
+    Parameters:
+    - learner_model: The student model that will be trained. Should be an instance of a model that can be trained.
+    - instructor_model: The teacher model that provides guidance. Should be an instance of a model that is typically larger and more accurate.
+    - training_data: Dataset used for training the student model.
 
-# Setting up environment variable to avoid parallelism issues with tokenizers
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    Returns:
+    - An instance of DistillationTrainer after training, containing the trained student model.
+    """
+    # Create a distillation trainer with the specified models and dataset
+    distillation_trainer = DistillationTrainer(
+        teacher_model=instructor_model,  # Model providing guidance
+        student_model=learner_model,     # Model to be trained
+        train_dataset=training_data      # Training data
+    )
 
-# Load the AG News dataset
-dataset = load_dataset("ag_news")
+    # Execute the training process for the student model
+    distillation_trainer.train()
 
-# Prepare datasets for training and evaluation
-train_dataset = dataset["train"].train_test_split(seed=42)
-train_dataset_student = train_dataset["test"].select(range(1000))
-train_dataset = sample_dataset(train_dataset["train"])
-test_dataset = dataset["test"]
+    # Return the distillation trainer instance, which contains the trained student model
+    return distillation_trainer
 
-# Train models
-student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-v2", train_dataset)
-teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base-v2", train_dataset)
-teacher_model.model.save_pretrained("distilled")
-student_model.model.save_pretrained("distilled")
+# Detailed explanation
+"""
+DistillationTrainer is a specialized training class provided by the SetFit library, designed specifically 
+for the process of model distillation. Model distillation is a technique where a smaller, less complex "student" 
+model learns to replicate the performance of a larger, more complex "teacher" model. This approach is commonly 
+used to create models that are more efficient and faster at inference while retaining much of the performance 
+of the original model.
 
-# Evaluate both models using the updated benchmark class
-benchmark_evaluator = ModelBenchmark(student_model.model, test_dataset)
-student_benchmark = benchmark_evaluator.run_benchmark()
-benchmark_evaluator.model = teacher_model.model  # Update model in the evaluator for re-use
-teacher_benchmark = benchmark_evaluator.run_benchmark()
+Typically, distillation involves a combination of a traditional loss function (like cross-entropy) to measure 
+the accuracy of the student model on the ground truth labels, and a distillation loss, which measures how well 
+the student model's outputs match those of the teacher model. The common choice is the Kullback-Leibler divergence 
+for the distillation loss.
 
-# Perform and evaluate model distillation
-distiller = perform_model_distillation(student_model.model, teacher_model.model, train_dataset_student)
-distiller.model.save_pretrained("distilled")
-benchmark_evaluator.model = distiller.model  # Update model in the evaluator for re-use
-distiller_benchmark = benchmark_evaluator.run_benchmark()
-
-# ONNX conversion for the distilled model
-model_directory = Path("distilled")
-converted_model, converted_tokenizer = convert_to_onnx(model_directory)
-onnx_setfit_model = EnhancedOnnxModel(converted_model, converted_tokenizer, student_model.model.model_head)
-
-# Benchmarking non-quantized ONNX model
-onnx_benchmark_evaluator = ModelBenchmark(converted_model.model, test_data)
-non_quantized_benchmark = onnx_benchmark_evaluator.run_benchmark_onnx(onnx_setfit_model, "onnx/model.onnx")
-
-# Quantize the ONNX model
-onnx_quantizer = ModelQuantizer(Path("onnx"), student_model.model.model_head, converted_tokenizer, test_data)
-quantized_onnx_model = onnx_quantizer.quantize_model()
-
-# Load and benchmark the quantized ONNX model
-# Load the quantized model for feature extraction
-ort_model = ORTModelForFeatureExtraction.from_pretrained(Path("onnx"), file_name="model_quantized.onnx")
-onnx_setfit_model_quantized = EnhancedOnnxModel(ort_model, converted_tokenizer, student_model.model.model_head)
-
-quantized_benchmark_evaluator = ModelBenchmark(onnx_setfit_model_quantized, test_data)
-quantized_model_benchmark = onnx_benchmark_evaluator.run_benchmark_onnx(onnx_setfit_model, "onnx/model_quantized.onnx")
-
-# Final results output
-results = {
-    "student_model": student_benchmark,
-    "teacher_model": teacher_benchmark,
-    "distilled_model": distiller_benchmark,
-    "non_quantized_onnx": non_quantized_benchmark,
-    "quantized_onnx": quantized_model_benchmark
-}
-
-
-# Optionally, print the results or use them in further analysis
-print(results)
+In the distillation process, temperature scaling is often used during the computation of the softmax function 
+to smooth out the probabilities and make the outputs from the teacher model softer. This helps the student model 
+to learn more generalized features rather than mimicking hard probabilities.
+"""

@@ -1,81 +1,80 @@
+import os
+from pathlib import Path
 import wandb
+from datasets import load_dataset
+
 # Disable wandb for this session
 wandb.init(mode="disabled")
 
-# Importing necessary modules
-from quantization import myquantizer
-from pathlib import Path
-import datasets
-import os
-from datasets import load_dataset
-from setfit import sample_dataset
-from neural_compressor.experimental import Quantization, common
-
-#import custom modules
-from student_train import train_student
-from teacher_train import train_teacher
-from benchmark import ModelEvaluator
-from distillation import distill_model
-from onnx_model import onnx_conversion
-from plot import plot_model_data
+# Custom module imports
+from model.quantization import ModelQuantizer
+from model.student_train import train_student_model
+from model.teacher_train import train_teacher_model
+from evaluation.benchmark import ModelBenchmark  # Updated class name
+from model.distillation import perform_model_distillation
+from model.onnx_model import convert_to_onnx
+from plots.plot import plot_model_performance, plot_accuracy_and_latency, plot_top_categories  # Updated for new plotting functions
 from optimum.onnxruntime import ORTModelForFeatureExtraction
-from quantization import OnnxSetFitModel
+from quantization import EnhancedOnnxModel
+from setfit import sample_dataset
 
-# Disable tokenizer parallelism to avoid multi-threading issues
+# Setting up environment variable to avoid parallelism issues with tokenizers
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # Load the AG News dataset
 dataset = load_dataset("ag_news")
 
-# Split training dataset for distillation, and sample a subset for the student model
+# Prepare datasets for training and evaluation
 train_dataset = dataset["train"].train_test_split(seed=42)
 train_dataset_student = train_dataset["test"].select(range(1000))
 train_dataset = sample_dataset(train_dataset["train"])
 test_dataset = dataset["test"]
 
-# Train the student model with a smaller transformer model
-student_model = train_student("sentence-transformers/paraphrase-MiniLM-L3-v2", train_dataset)
+# Train models
+student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-v2", train_dataset)
+teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base-v2", train_dataset)
 
-# Evaluate the student model
-pb = ModelEvaluator(student_model.model, test_dataset)
-b1 = pb.conduct_benchmark()
+# Evaluate both models using the updated benchmark class
+benchmark_evaluator = ModelBenchmark(student_model.model, test_dataset)
+student_benchmark = benchmark_evaluator.run_benchmark()
+benchmark_evaluator.model = teacher_model.model  # Update model in the evaluator for re-use
+teacher_benchmark = benchmark_evaluator.run_benchmark()
 
-# Train a teacher model with a larger transformer model for comparison
-teacher_model = train_student("sentence-transformers/paraphrase-mpnet-base-v2", train_dataset)
-pb = ModelEvaluator(teacher_model.model, test_dataset)
-b2 = pb.conduct_benchmark()
+# Perform and evaluate model distillation
+distiller = perform_model_distillation(student_model.model, teacher_model.model, train_dataset_student)
+distiller.model.save_pretrained("distilled")
+benchmark_evaluator.model = distiller.model  # Update model in the evaluator for re-use
+distiller_benchmark = benchmark_evaluator.run_benchmark()
 
-# Perform model distillation from teacher to student
-distiller = distill_model(student_model.model, teacher_model.model, train_dataset_student)
-distiller.student_model._save_pretrained("distilled")
+# ONNX conversion for the distilled model
+model_directory = Path("distilled")
+converted_model, converted_tokenizer = convert_to_onnx(model_directory)
+onnx_setfit_model = EnhancedOnnxModel(converted_model, converted_tokenizer, student_model.model.model_head)
 
-# Evaluate the distilled model
-pb = ModelEvaluator(distiller.student_model, test_dataset)
-b3 = pb.conduct_benchmark()
-
-# Prepare for ONNX conversion
-model_path = "distilled"
-ort_model, tokenizer = onnx_conversion(model_path)
-
-# Create a directory for ONNX models
-onnx_path = Path("onnx")
-
-# Load the non-quantized ONNX model for feature extraction
-ort_model = ORTModelForFeatureExtraction.from_pretrained(onnx_path, file_name="model.onnx")
-onnx_setfit_model = OnnxSetFitModel(ort_model, tokenizer, student_model.model.model_head)
-
-# Benchmark the non-quantized ONNX model
-b4 = pb.conduct_benchmark_onnx(onnx_setfit_model, "onnx/model.onnx")
+# Benchmarking non-quantized ONNX model
+onnx_benchmark_evaluator = ModelBenchmark(converted_model.model, test_data)
+non_quantized_benchmark = onnx_benchmark_evaluator.run_benchmark_onnx(onnx_setfit_model, "onnx/model.onnx")
 
 # Quantize the ONNX model
-quantized_model = myquantizer(onnx_path, student_model.model.model_head, tokenizer, test_dataset)
-qm = quantized_model.quantizer_model()
+onnx_quantizer = ModelQuantizer(Path("onnx"), student_model.model.model_head, converted_tokenizer, test_data)
+quantized_onnx_model = onnx_quantizer.quantize_model()
 
+# Load and benchmark the quantized ONNX model
 # Load the quantized model for feature extraction
-ort_model = ORTModelForFeatureExtraction.from_pretrained(onnx_path, file_name="model_quantized.onnx")
-onnx_setfit_model = OnnxSetFitModel(ort_model, tokenizer, student_model.model.model_head)
+ort_model = ORTModelForFeatureExtraction.from_pretrained(Path("onnx"), file_name="model_quantized.onnx")
+onnx_setfit_model_quantized = EnhancedOnnxModel(ort_model, converted_tokenizer, student_model.model.model_head)
 
-# Benchmark the quantized ONNX model
-b5 = pb.conduct_benchmark_onnx(onnx_setfit_model, "onnx/model_quantized.onnx")
+quantized_benchmark_evaluator = ModelBenchmark(onnx_setfit_model_quantized, test_data)
+quantized_model_benchmark = onnx_benchmark_evaluator.run_benchmark_onnx(onnx_setfit_model, "onnx/model_quantized.onnx")
 
+# Final results output
+results = {
+    "student_model": student_benchmark,
+    "teacher_model": teacher_benchmark,
+    "distilled_model": distiller_benchmark,
+    "non_quantized_onnx": non_quantized_benchmark,
+    "quantized_onnx": quantized_model_benchmark
+}
 
+# Optionally, print the results or use them in further analysis
+print(results)
