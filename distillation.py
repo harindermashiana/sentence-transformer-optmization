@@ -1,4 +1,4 @@
-from setfit import DistillationTrainer  # Updated to use the recommended trainer
+from setfit import DistillationSetFitTrainer
 
 def perform_model_distillation(learner_model, instructor_model, training_data):
     """
@@ -14,7 +14,7 @@ def perform_model_distillation(learner_model, instructor_model, training_data):
     - An instance of DistillationTrainer after training, containing the trained student model.
     """
     # Create a distillation trainer with the specified models and dataset
-    distillation_trainer = DistillationTrainer(
+    distillation_trainer = DistillationSetFitTrainer(
         teacher_model=instructor_model,  # Model providing guidance
         student_model=learner_model,     # Model to be trained
         train_dataset=training_data      # Training data

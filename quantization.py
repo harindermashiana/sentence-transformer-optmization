@@ -39,7 +39,7 @@ class ModelQuantizer:
 
     def evaluate_model(self, serialized_model):
         print(f"Quantizing model at: {self.model_path}")
-        loaded_model = ORTModelForFeatureExtraction.from_pretrained(self.model_path)
+        loaded_model = ORTModelForFeatureExtraction.from_pretrained(self.model_path,file_name = "model.onnx")
         loaded_model.model = onnxruntime.InferenceSession(serialized_model.SerializeToString(), None)
         onnx_model = EnhancedOnnxModel(loaded_model, self.tokenizer, self.head)
         

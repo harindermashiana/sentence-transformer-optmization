@@ -10,7 +10,7 @@ codes = {"1":"World","2":"Sci/Tech","3":"Politics","4":"Business"}
 # Load the accuracy metric for evaluation purposes
 accuracy_metric = evaluate.load("accuracy")
 
-class ModelEvaluator:
+class ModelBenchmark:
     def __init__(self, model, data):
         self.data = data
         self.model = model
