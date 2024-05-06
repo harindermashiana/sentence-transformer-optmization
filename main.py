@@ -2,18 +2,18 @@ import os
 from pathlib import Path
 import wandb
 from datasets import load_dataset
-
+import json
+os.environ['WANDB_API_KEY'] = '3065b922fcb0dd1f483df3a6dfe54f4b93daf086'
 # Disable wandb for this session
-wandb.init(mode="disabled")
+wandb.init(mode="online")
 
 # Custom module imports
-from quantization import ModelQuantizer
-from student_train import train_student_model
-from teacher_train import train_teacher_model
-from benchmark import ModelBenchmark  # Updated class name
-from distillation import perform_model_distillation
-from onnx_model import convert_to_onnx
-from plot import plot_model_performance, plot_accuracy_and_latency, plot_top_categories  # Updated for new plotting functions
+from training.quantization import ModelQuantizer
+from training.student_train import train_student_model
+from training.teacher_train import train_teacher_model
+from evaluator.benchmark import ModelBenchmark  # Updated class name
+from training.distillation import perform_model_distillation
+from training.onnx_model import convert_to_onnx
 from optimum.onnxruntime import ORTModelForFeatureExtraction
 from quantization import EnhancedOnnxModel
 from setfit import sample_dataset
@@ -30,23 +30,42 @@ train_dataset_student = train_dataset["test"].select(range(1000))
 train_dataset = sample_dataset(train_dataset["train"])
 test_dataset = dataset["test"]
 
-# Train models
-student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-v2", train_dataset)
-teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base-v2", train_dataset)
+# Train and evaluate models
+wandb.run.name = "Training Student Model"
+wandb.init(project="model_analysis", entity="hsmashiana", name="Training Student Model")
 
-# Evaluate both models using the updated benchmark class
+student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-v2", train_dataset)
 benchmark_evaluator = ModelBenchmark(student_model.model, test_dataset)
 student_benchmark = benchmark_evaluator.conduct_benchmark()
-benchmark_evaluator.model = teacher_model.model  # Update model in the evaluator for re-use
+wandb.log({"student_model_benchmark": student_benchmark})
+
+wandb.log({"train_loss_student": student_model.state.log_history})
+
+wandb.run.name = "Training Teacher Model"
+wandb.init(project="model_analysis", entity="hsmashiana", name="Training Teacher Model")
+
+teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base-v2", train_dataset)
+benchmark_evaluator.model = teacher_model.model 
 teacher_benchmark = benchmark_evaluator.conduct_benchmark()
+wandb.log({"teacher_model_benchmark": teacher_benchmark})
+wandb.log({"train_loss_teacher": teacher_model.state.log_history})
+
 
 # Perform and evaluate model distillation
+wandb.run.name = "Distillation"
+wandb.init(project="model_analysis", entity="hsmashiana", name="Distillation")
+
 distiller = perform_model_distillation(student_model.model, teacher_model.model, train_dataset_student)
 distiller.model.save_pretrained("distilled")
 benchmark_evaluator.model = distiller.model  # Update model in the evaluator for re-use
 distiller_benchmark = benchmark_evaluator.conduct_benchmark()
+wandb.log({"distilled_model_benchmark": distiller_benchmark})
+wandb.log({"train_loss_distillation": distiller.state.log_history})
 
 # ONNX conversion for the distilled model
+wandb.run.name = "Onnx_non_quantized"
+wandb.init(project="model_analysis", entity="hsmashiana", name="Onnx_non_quantized")
+
 model_directory = Path("distilled")
 converted_model, converted_tokenizer = convert_to_onnx(model_directory)
 onnx_setfit_model = EnhancedOnnxModel(converted_model, converted_tokenizer, student_model.model.model_head)
@@ -54,8 +73,12 @@ onnx_setfit_model = EnhancedOnnxModel(converted_model, converted_tokenizer, stud
 # Benchmarking non-quantized ONNX model
 onnx_benchmark_evaluator = ModelBenchmark(onnx_setfit_model, test_dataset)
 non_quantized_benchmark = onnx_benchmark_evaluator.conduct_benchmark_onnx(onnx_setfit_model, "onnx/model.onnx")
+wandb.log({"non_quantized_benchmark": non_quantized_benchmark})
 
 # Quantize the ONNX model
+wandb.run.name = "Onnx_Quantized"
+wandb.init(project="model_analysis", entity="hsmashiana", name="Onnx_Quantized")
+
 onnx_quantizer = ModelQuantizer(Path("onnx"), student_model.model.model_head, converted_tokenizer, test_dataset)
 quantized_onnx_model = onnx_quantizer.quantize_model()
 
@@ -66,6 +89,7 @@ onnx_setfit_model_quantized = EnhancedOnnxModel(ort_model, converted_tokenizer, 
 
 quantized_benchmark_evaluator = ModelBenchmark(onnx_setfit_model_quantized, test_dataset)
 quantized_model_benchmark = quantized_benchmark_evaluator.conduct_benchmark_onnx(onnx_setfit_model_quantized, "onnx/model_quantized.onnx")
+wandb.log({"quantized_model_benchmark": quantized_model_benchmark})
 
 # Final results output
 results = {
@@ -77,4 +101,5 @@ results = {
 }
 
 # Optionally, print the results or use them in further analysis
-print(results)
+with open('results.json', 'w') as json_file:
+    json.dump(results, json_file)
