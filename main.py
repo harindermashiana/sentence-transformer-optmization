@@ -38,7 +38,6 @@ student_model = train_student_model("sentence-transformers/paraphrase-MiniLM-L3-
 benchmark_evaluator = ModelBenchmark(student_model.model, test_dataset)
 student_benchmark = benchmark_evaluator.conduct_benchmark()
 wandb.log(student_benchmark)
-
 wandb.log({"train_loss_student": student_model.state.log_history})
 
 wandb.run.name = "Training Teacher Model"
@@ -47,9 +46,8 @@ wandb.init(project="model_analysis", entity="hsmashiana", name="Training Teacher
 teacher_model = train_teacher_model("sentence-transformers/paraphrase-mpnet-base-v2", train_dataset)
 benchmark_evaluator.model = teacher_model.model 
 teacher_benchmark = benchmark_evaluator.conduct_benchmark()
-wandb.log({"teacher_model_benchmark": teacher_benchmark})
-wandb.log(teacher_model.state.log_history)
-
+wandb.log(teacher_benchmark)
+wandb.log({"train_loss_teacher": teacher_model.state.log_history})
 
 # Perform and evaluate model distillation
 wandb.run.name = "Distillation"
@@ -59,8 +57,8 @@ distiller = perform_model_distillation(student_model.model, teacher_model.model,
 distiller.model.save_pretrained("distilled")
 benchmark_evaluator.model = distiller.model  # Update model in the evaluator for re-use
 distiller_benchmark = benchmark_evaluator.conduct_benchmark()
-wandb.log({"distilled_model_benchmark": distiller_benchmark})
-wandb.log(distiller.state.log_history)
+wandb.log(distiller_benchmark)
+wandb.log({"train_loss_distillation": teacher_model.state.log_history})
 
 # ONNX conversion for the distilled model
 wandb.run.name = "Onnx_non_quantized"
