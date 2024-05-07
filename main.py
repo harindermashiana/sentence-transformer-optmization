@@ -14,8 +14,9 @@ from training.teacher_train import train_teacher_model
 from evaluator.benchmark import ModelBenchmark  # Updated class name
 from training.distillation import perform_model_distillation
 from training.onnx_model import convert_to_onnx
+from training.quantization import EnhancedOnnxModel
+
 from optimum.onnxruntime import ORTModelForFeatureExtraction
-from quantization import EnhancedOnnxModel
 from setfit import sample_dataset
 
 # Setting up environment variable to avoid parallelism issues with tokenizers

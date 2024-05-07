@@ -126,6 +126,7 @@ Our project successfully demonstrates that employing techniques like knowledge d
 
 ![Model Performance Comparison](plots/model_performance.png)
 
+You can review the runs on [WandB](https://wandb.ai/hsmashiana/model_analysis?nw=nwuserhsmashiana) 
 ### Analysis of Results
 
 From the graph:

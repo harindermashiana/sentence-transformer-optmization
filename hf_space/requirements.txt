@@ -1,0 +1,9 @@
+torch
+transformers
+gradio
+transformers 
+setfit 
+neural_compressor 
+optimum[onnxruntime] 
+onnxruntime_extensions 
+wandb
